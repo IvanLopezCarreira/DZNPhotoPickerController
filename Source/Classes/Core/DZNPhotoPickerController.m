@@ -11,7 +11,6 @@
 #import "DZNPhotoPickerController.h"
 #import "DZNPhotoDisplayViewController.h"
 #import "DZNPhotoServiceFactory.h"
-#import "DZNPhotoMetadata.h"
 
 #import <MobileCoreServices/UTCoreTypes.h>
 
@@ -20,7 +19,8 @@ static DZNPhotoPickerControllerFailureBlock _failureBlock;
 static DZNPhotoPickerControllerCancellationBlock _cancellationBlock;
 
 @interface DZNPhotoPickerController ()
-@property (nonatomic, getter=isEditModeEnabled) BOOL editModeEnabled;
+@property (nonatomic, getter = isEditing) BOOL editing;
+@property (nonatomic, assign) UIImage *editingImage;
 @end
 
 @implementation DZNPhotoPickerController
@@ -48,18 +48,8 @@ static DZNPhotoPickerControllerCancellationBlock _cancellationBlock;
     self = [super init];
     if (self) {
         
-        DZNPhotoEditorViewController *controller = [[DZNPhotoEditorViewController alloc] initWithImage:image];
-        self.editModeEnabled = YES;
-        
-        [controller setAcceptBlock:^(DZNPhotoEditorViewController *editor, NSDictionary *userInfo){
-            [[DZNPhotoMetadata new] postMetadataUpdate:userInfo];
-        }];
-        
-        [controller setCancelBlock:^(DZNPhotoEditorViewController *editor){
-            [self cancelPicker:nil];
-        }];
-        
-        [self setViewControllers:@[controller] animated:NO];
+        self.editingImage = image;
+        self.editing = YES;
     }
     return self;
 }
@@ -75,22 +65,20 @@ static DZNPhotoPickerControllerCancellationBlock _cancellationBlock;
     self.edgesForExtendedLayout = UIRectEdgeTop;
 }
 
+- (void)viewDidLoad
+{
+    [super viewDidLoad];
+    
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(didFinishPickingPhoto:) name:DZNPhotoPickerDidFinishPickingNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(didFailPickingPhoto:) name:DZNPhotoPickerDidFailPickingNotification object:nil];
+}
+
 - (void)viewWillAppear:(BOOL)animated
 {
     [super viewWillAppear:animated];
 
-    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(didFinishPickingPhoto:) name:DZNPhotoPickerDidFinishPickingNotification object:nil];
-    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(didFailPickingPhoto:) name:DZNPhotoPickerDidFailPickingNotification object:nil];
-    
-    if (!self.isEditModeEnabled) {
-        [self showPhotoDisplayController];
-    }
-}
-
-- (void)viewWillDisappear:(BOOL)animated {
-    [super viewWillDisappear:animated];
-    
-    [[NSNotificationCenter defaultCenter] removeObserver:self];
+    if (self.isEditing) [self showPhotoEditorController];
+    else [self showPhotoDisplayController];
 }
 
 
@@ -128,17 +116,26 @@ static DZNPhotoPickerControllerCancellationBlock _cancellationBlock;
     _cropMode = mode;
 }
 
+- (void)setFinalizationBlock:(DZNPhotoPickerControllerFinalizationBlock)block
+{
+    if (block) {
+        _finalizationBlock = [block copy];
+    }
+}
+
+- (void)setCancellationBlock:(DZNPhotoPickerControllerCancellationBlock)block
+{
+    if (block) {
+        _cancellationBlock = [block copy];
+    }
+}
+
 - (void)setCropSize:(CGSize)size
 {
     NSAssert(!CGSizeEqualToSize(size, CGSizeZero), @"'cropSize' cannot be zero.");
     
-    self.cropMode = DZNPhotoEditorViewControllerCropModeCustom;
     _cropSize = size;
-}
-
-+ (void)registerFreeService:(DZNPhotoPickerControllerServices)service consumerKey:(NSString *)key consumerSecret:(NSString *)secret
-{
-    [self registerService:service consumerKey:key consumerSecret:secret subscription:DZNPhotoPickerControllerSubscriptionFree];
+    _cropMode = DZNPhotoEditorViewControllerCropModeCustom;
 }
 
 + (void)registerService:(DZNPhotoPickerControllerServices)service consumerKey:(NSString *)key consumerSecret:(NSString *)secret subscription:(DZNPhotoPickerControllerSubscription)subscription
@@ -166,6 +163,16 @@ static DZNPhotoPickerControllerCancellationBlock _cancellationBlock;
     [self setViewControllers:@[controller]];
 }
 
+/*
+ * Shows the photo editor controller.
+ */
+- (void)showPhotoEditorController
+{
+    [self setViewControllers:nil];
+    
+    DZNPhotoEditorViewController *controller = [[DZNPhotoEditorViewController alloc] initWithImage:_editingImage cropMode:_cropMode cropSize:_cropSize];
+    [self pushViewController:controller animated:NO];
+}
 
 /*
  * Called by a notification whenever the user picks a photo.
@@ -203,7 +210,7 @@ static DZNPhotoPickerControllerCancellationBlock _cancellationBlock;
  */
 - (void)cancelPicker:(id)sender
 {
-    DZNPhotoDisplayViewController *controller = (DZNPhotoDisplayViewController *)[self.viewControllers firstObject];
+    DZNPhotoDisplayViewController *controller = (DZNPhotoDisplayViewController *)[self.viewControllers objectAtIndex:0];
     if ([controller respondsToSelector:@selector(stopLoadingRequest)]) {
         [controller stopLoadingRequest];
     }
@@ -233,6 +240,9 @@ static DZNPhotoPickerControllerCancellationBlock _cancellationBlock;
 
 - (void)dealloc
 {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+    
+    _editingImage = nil;
     _initialSearchTerm = nil;
     _finalizationBlock = nil;
     _cancellationBlock = nil;

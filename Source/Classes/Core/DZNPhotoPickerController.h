@@ -57,7 +57,7 @@ typedef void (^DZNPhotoPickerControllerCancellationBlock)(DZNPhotoPickerControll
  @param image The image to be edited.
  @returns The initialized picker controller.
  */
-- (instancetype)initWithEditableImage:(UIImage *)image  DEPRECATED_MSG_ATTRIBUTE("Use DZNPhotoEditorViewController -initWithImage: instead");
+- (instancetype)initWithEditableImage:(UIImage *)image;
 
 /**
  Returns an array of the available media types for the specified service type.
@@ -67,12 +67,6 @@ typedef void (^DZNPhotoPickerControllerCancellationBlock)(DZNPhotoPickerControll
  @return An array whose elements identify the available media types for the supported services.
  */
 + (NSArray *)availableMediaTypesForSupportedServices:(DZNPhotoPickerControllerServices)services;
-
-/**
- Registers a FREE (or demo) specified photo service.
- @discussion This is a convenience method of +registerService:consumerKey:consumerSecret:subscription:
- */
-+ (void)registerFreeService:(DZNPhotoPickerControllerServices)service consumerKey:(NSString *)key consumerSecret:(NSString *)secret;
 
 /**
  Registers a specified photo service.

@@ -17,10 +17,7 @@
 #import "DZNPhotoTag.h"
 
 #import "SDWebImageManager.h"
-#import "UIImageView+WebCache.h"
-
 #import "UIScrollView+EmptyDataSet.h"
-#import "MBProgressHUD.h"
 
 static NSString *kDZNPhotoCellViewIdentifier = @"kDZNPhotoCellViewIdentifier";
 static NSString *kDZNPhotoFooterViewIdentifier = @"kDZNPhotoFooterViewIdentifier";
@@ -382,8 +379,12 @@ Returns the custom collection view layout.
 /*
  Sets the current photo search response and refreshs the collection view.
  */
-- (void)setPhotoSearchList:(NSArray *)list
-{
+- (void)setPhotoSearchList:(NSArray *)list {
+    //Custom modification
+    if (_currentPage == 1) {
+        [self loadMorePhotos:nil];
+    }
+    
     [self setActivityIndicatorsVisible:NO];
     
     if (!_metadataList) _metadataList = [NSMutableArray new];
@@ -496,70 +497,39 @@ Returns the custom collection view layout.
     DZNPhotoMetadata *metadata = [_metadataList objectAtIndex:indexPath.row];
     
     if (!self.navigationController.enablePhotoDownload) {
-        [metadata postMetadataUpdate:nil];
+        
+        [DZNPhotoEditorViewController didFinishPickingOriginalImage:nil
+                                                        editedImage:nil
+                                                           cropRect:CGRectZero
+                                                          zoomScale:1.0
+                                                           cropMode:DZNPhotoEditorViewControllerCropModeNone
+                                                      photoMetadata:metadata];
     }
     else if (self.navigationController.allowsEditing) {
         
-        DZNPhotoEditorViewController *controller = [[DZNPhotoEditorViewController alloc] init];
-        controller.cropMode = self.navigationController.cropMode;
-        controller.cropSize = self.navigationController.cropSize;
-        
+        DZNPhotoEditorViewController *controller = [[DZNPhotoEditorViewController alloc] initWithMetadata:metadata cropMode:self.navigationController.cropMode cropSize:self.navigationController.cropSize];
         [self.navigationController pushViewController:controller animated:YES];
-
-        [controller setAcceptBlock:^(DZNPhotoEditorViewController *editor, NSDictionary *userInfo){
-            [metadata postMetadataUpdate:userInfo];
-            [self.navigationController popViewControllerAnimated:YES];
-        }];
-        
-        [controller setCancelBlock:^(DZNPhotoEditorViewController *editor){
-            [self.navigationController popViewControllerAnimated:YES];
-        }];
-        
-        controller.rightButton.enabled = NO;
-        [controller.activityIndicator startAnimating];
-        
-        __weak DZNPhotoEditorViewController *_controller = controller;
-        
-        [controller.imageView sd_setImageWithPreviousCachedImageWithURL:metadata.sourceURL
-                                              andPlaceholderImage:nil
-                                                          options:SDWebImageCacheMemoryOnly|SDWebImageProgressiveDownload|SDWebImageRetryFailed
-                                                         progress:NULL
-                                                        completed:^(UIImage *image, NSError *error, SDImageCacheType cacheType, NSURL *imageURL) {
-                                                            if (!error) {
-                                                                _controller.rightButton.enabled = YES;
-                                                            }
-                                                            else {
-                                                                [[NSNotificationCenter defaultCenter] postNotificationName:DZNPhotoPickerDidFailPickingNotification object:nil userInfo:@{@"error": error}];
-                                                            }
-                                                            
-                                                            [_controller.activityIndicator stopAnimating];
-                                                        }];
     }
     else {
-        
-        // Presents a hud right after selecting an image while it's been downloaded
-        MBProgressHUD *hud = [MBProgressHUD showHUDAddedTo:self.navigationController.view animated:YES];
-        hud.mode = MBProgressHUDModeIndeterminate;
-        hud.labelText = NSLocalizedString(@"Loading", nil);
-        hud.animationType = MBProgressHUDAnimationFade;
-        hud.dimBackground = YES;
-        
         [self setActivityIndicatorsVisible:YES];
-        
+
         [[SDWebImageDownloader sharedDownloader] downloadImageWithURL:metadata.sourceURL
                                                               options:SDWebImageCacheMemoryOnly|SDWebImageRetryFailed
                                                              progress:NULL
                                                             completed:^(UIImage *image, NSData *data, NSError *error, BOOL finished){
                                                                 if (image) {
+                                                                    [DZNPhotoEditorViewController didFinishPickingOriginalImage:image
+                                                                                                                    editedImage:nil
+                                                                                                                       cropRect:CGRectZero
+                                                                                                                      zoomScale:1.0
+                                                                                                                       cropMode:DZNPhotoEditorViewControllerCropModeNone
+                                                                                                                  photoMetadata:metadata];
                                                                     
-                                                                    NSDictionary *userInfo = @{UIImagePickerControllerOriginalImage: image};
-                                                                    [metadata postMetadataUpdate:userInfo];
                                                                 }
                                                                 else {
                                                                     [self setLoadingError:error];
                                                                 }
                                                                 
-                                                                [hud hide:YES];
                                                                 [self setActivityIndicatorsVisible:NO];
                                                             }];
     }
@@ -610,7 +580,10 @@ Returns the custom collection view layout.
  */
 - (void)searchPhotosWithKeyword:(NSString *)keyword
 {
-    [self setActivityIndicatorsVisible:YES];
+    if (_currentPage != 2) {
+        [self setActivityIndicatorsVisible:YES];
+    }
+    
     [self.collectionView reloadData];
     
     _searchBar.text = keyword;
@@ -643,8 +616,10 @@ Returns the custom collection view layout.
 {
     sender.enabled = NO;
     
-    _currentPage++;
-    [self searchPhotosWithKeyword:_searchBar.text];
+    if (_currentPage < 10) {
+        _currentPage++;
+        [self searchPhotosWithKeyword:_searchBar.text];
+    }
 }
 
 
@@ -874,16 +849,29 @@ Returns the custom collection view layout.
     _searchBar.showsScopeBar = shift;
     NSTimeInterval duration = animated ? 0.25 : 0.0;
     
+    //added here to fix horizontal lines when shifted
+//    if (shift) {
+//        [self.navigationController setNavigationBarHidden:YES animated:YES];
+//    } else {
+//        [self.navigationController setNavigationBarHidden:NO animated:YES];
+//    }
+    if (shift) {
+        [self.navigationController setNavigationBarHidden:YES animated:YES];
+    } else {
+        [self.navigationController setNavigationBarHidden:NO animated:YES];
+    }
+    
     [UIView animateWithDuration:duration
                      animations:^{
-                         [self.searchBar setFrame:[self searchBarFrame]];
                          [self.searchDisplayController setActive:shift];
+                         [self.searchBar setFrame:[self searchBarFrame]];
                      }
-                     completion:NULL];
+                     completion:nil];
 }
 
 - (void)searchBarSearchButtonClicked:(UISearchBar *)searchBar
 {
+    
     NSString *text = searchBar.text;
     
     [self shouldSearchPhotos:text];
@@ -904,7 +892,6 @@ Returns the custom collection view layout.
     NSString *name = [searchBar.scopeButtonTitles objectAtIndex:selectedScope];
     _selectedService = DZNPhotoServiceFromName(name);
 }
-
 
 #pragma mark - UISearchDisplayDelegate methods
 
